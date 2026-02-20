@@ -31,5 +31,5 @@ jobs:
     - name: Upload EXE artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Tgratnichek.exe
+        name: Tgratnichek12.exe
         path: dist/Tgratnichek.exe
